@@ -149,8 +149,12 @@ activemq-data/
 
 # Environments
 .env
+.env.*
+!.env.example
 .envrc
 .venv
+.uv-cache/
+.uv-python/
 env/
 venv/
 ENV/
