@@ -1,0 +1,10 @@
+{
+  "vendor_name": "Asteria AI Systems",
+  "service_description": "Enterprise Generative AI platform (secure chat, enterprise RAG, workflow agents)",
+  "number_of_users": 2000,
+  "data_classification": "CONFIDENTIAL",
+  "business_request": "Evaluate Asteria AI Systems as an enterprise Generative AI platform for 2,000 employees. The platform may process confidential corporate documents. Identify material risks and recommend APPROVE, CONDITIONAL APPROVAL or REJECT.",
+  "requested_by": "Head of Digital Workplace",
+  "business_owner": "Chief Operating Officer",
+  "contract_term_months": 12
+}

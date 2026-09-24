@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NFS Vendor Risk Agent</title>
+<script src="https://cdn.jsdelivr.net/npm/marked@12/marked.min.js"></script>
+<style>
+  :root { --bg:#f6f7f9; --card:#fff; --ink:#1d2433; --muted:#5b6475; --line:#dde1e8; --accent:#1f5eff;
+          --high:#c62828; --med:#b26a00; --low:#2e7d32; }
+  * { box-sizing: border-box; }
+  body { margin:0; font:14px/1.5 system-ui, sans-serif; background:var(--bg); color:var(--ink); }
+  header { padding:14px 20px; background:#101828; color:#fff; }
+  header b { font-size:16px; } header span { color:#aab3c5; margin-left:8px; }
+  main { display:grid; grid-template-columns: 380px 1fr; gap:16px; padding:16px; }
+  @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:14px; margin-bottom:16px; }
+  h2 { font-size:14px; margin:0 0 10px; text-transform:uppercase; letter-spacing:.04em; color:var(--muted); }
+  label { display:block; font-size:12px; color:var(--muted); margin-top:8px; }
+  input, select, textarea { width:100%; padding:7px; border:1px solid var(--line); border-radius:6px; font:inherit; }
+  textarea { min-height:90px; }
+  button { margin-top:12px; padding:8px 14px; border:0; border-radius:6px; background:var(--accent); color:#fff; cursor:pointer; font-weight:600; }
+  button:disabled { opacity:.5; cursor:default; }
+  table { border-collapse:collapse; width:100%; font-size:13px; }
+  td, th { border-bottom:1px solid var(--line); padding:5px 6px; text-align:left; vertical-align:top; }
+  .pill { display:inline-block; padding:1px 8px; border-radius:10px; font-weight:600; font-size:12px; background:#eef1f6; }
+  .HIGH, .REJECT, .failed { color:var(--high); } .MEDIUM, .CONDITIONAL { color:var(--med); } .LOW, .APPROVE, .completed { color:var(--low); }
+  #report { overflow-x:auto; } #report table { margin:8px 0; } #report h1 { font-size:20px; } #report h2 { color:var(--ink); text-transform:none; font-size:16px; margin-top:18px; }
+  .muted { color:var(--muted); } .err { color:var(--high); font-weight:600; }
+  pre { white-space:pre-wrap; word-break:break-word; }
+</style>
+</head>
+<body>
+<header><b>Northstar Financial Services</b><span>Vendor Risk &amp; Procurement Deep Agent (PoC)</span></header>
+<main>
+  <section>
+    <div class="card">
+      <h2>1 · Assessment request</h2>
+      <label>Vendor</label><input id="vendor_name" value="Asteria AI Systems">
+      <label>Service</label><input id="service_description" value="Enterprise Generative AI platform (chat, enterprise RAG, workflow agents)">
+      <label>Users</label><input id="number_of_users" type="number" value="2000">
+      <label>Data classification</label>
+      <select id="data_classification"><option>PUBLIC</option><option>INTERNAL</option><option selected>CONFIDENTIAL</option><option>RESTRICTED</option></select>
+      <label>Business request</label>
+      <textarea id="business_request">Evaluate Asteria AI Systems as an enterprise Generative AI platform for 2,000 employees. The platform may process confidential corporate documents. Identify material risks and recommend APPROVE, CONDITIONAL APPROVAL or REJECT.</textarea>
+      <button id="submit">Run assessment</button>
+      <div id="submitMsg" class="muted"></div>
+    </div>
+    <div class="card" id="reviewCard" hidden>
+      <h2>3 · Human review</h2>
+      <div id="reviewInfo" class="muted"></div>
+      <label>Decision</label><select id="decision"></select>
+      <label>Approver</label><input id="approver" placeholder="Full name">
+      <label>Role</label>
+      <select id="role"><option>executive_risk_owner</option><option>vendor_risk_manager</option><option>procurement_agent</option></select>
+      <label>Comments</label><textarea id="comments"></textarea>
+      <button id="reviewBtn">Record decision</button>
+      <div id="reviewMsg"></div>
+    </div>
+  </section>
+  <section>
+    <div class="card"><h2>2 · Deep-agent progress</h2><div id="progress" class="muted">No assessment yet.</div></div>
+    <div class="card"><h2>Report</h2><div id="report" class="muted">The report appears here.</div></div>
+  </section>
+</main>
+<script>
+let aid = null, timer = null;
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const md = s => (window.marked ? marked.parse(s, {mangle:false, headerIds:false}) : `<pre>${esc(s)}</pre>`);
+
+$("submit").onclick = async () => {
+  const body = { vendor_name:$("vendor_name").value, service_description:$("service_description").value,
+    number_of_users:+$("number_of_users").value, data_classification:$("data_classification").value,
+    business_request:$("business_request").value, requested_by:"ui-user" };
+  $("submit").disabled = true; $("reviewCard").hidden = true; $("report").innerHTML = "";
+  const r = await fetch("/api/assessments", {method:"POST", headers:{"content-type":"application/json"}, body:JSON.stringify(body)});
+  const j = await r.json();
+  if (!r.ok) { $("submitMsg").innerHTML = `<span class="err">${esc(JSON.stringify(j.detail))}</span>`; $("submit").disabled = false; return; }
+  aid = j.assessment_id; $("submitMsg").textContent = `Started ${aid}`;
+  clearInterval(timer); timer = setInterval(poll, 2500); poll();
+};
+
+async function poll() {
+  const r = await fetch(`/api/assessments/${aid}`); if (!r.ok) return;
+  const s = await r.json(); render(s);
+  if (!s.running && s.status !== "RUNNING") {
+    clearInterval(timer); $("submit").disabled = false;
+    const rep = await fetch(`/api/assessments/${aid}/report`);
+    if (rep.ok) $("report").innerHTML = md(await rep.text());
+  }
+}
+
+function render(s) {
+  const tasks = (s.plan?.tasks || []).map(t => `<tr><td>${esc(t.task_id)}</td><td>${esc(t.assigned_agent)}</td>
+      <td class="${esc(t.status)}">${esc(t.status)}</td><td>${t.required_checks.length}</td><td class="muted">${esc((t.notes||[]).join("; "))}</td></tr>`).join("");
+  const d = s.decision;
+  const q = s.quality ? Object.entries(s.quality).map(([k,v]) => `${k}=<b>${v}</b>`).join(" · ") : "";
+  const phases = (s.run?.phases || []).map(p => `${esc(p.phase)}: ${p.seconds}s, ${Object.values(p.tokens||{}).reduce((a,u)=>a+(u.total_tokens||0),0)} tokens${p.error ? ` <span class="err">${esc(p.error)}</span>` : ""}`).join("<br>");
+  $("progress").innerHTML = `<div>Status: <span class="pill">${esc(s.status)}</span> ${s.running ? "· running…" : ""}</div>
+    ${tasks ? `<table><tr><th>Task</th><th>Delegated to</th><th>Status</th><th>Checks</th><th>Notes</th></tr>${tasks}</table>` : ""}
+    ${d ? `<p>Recommendation <span class="pill ${d.recommendation.split(" ")[0]}">${esc(d.recommendation)}</span>
+       Overall risk <span class="pill ${esc(d.overall_risk)}">${esc(d.overall_risk)}</span>
+       AI tier <span class="pill ${esc(d.ai_risk_tier)}">${esc(d.ai_risk_tier)}</span></p>
+       ${(d.overrides||[]).map(o => `<div class="err">Guardrail override: ${esc(o)}</div>`).join("")}` : ""}
+    ${(s.degraded||[]).length ? `<div class="err">Degraded: ${esc(s.degraded.join("; "))}</div>` : ""}
+    ${q ? `<p class="muted">${q}</p>` : ""}<p class="muted">${phases}</p>`;
+  const pr = s.pending_review;
+  $("reviewCard").hidden = !pr;
+  if (pr) {
+    $("reviewInfo").innerHTML = `AI recommends <b>${esc(pr.recommendation)}</b> (${esc(pr.overall_risk)} risk). Required role: <b>${esc(pr.required_role)}</b>.
+      ${pr.previous_attempt_rejected ? `<div class="err">Previous attempt rejected: ${esc(pr.previous_attempt_rejected)}</div>` : ""}`;
+    const cur = $("decision").value;
+    $("decision").innerHTML = pr.allowed_decisions.map(x => `<option ${x===cur?"selected":""}>${esc(x)}</option>`).join("");
+  }
+}
+
+$("reviewBtn").onclick = async () => {
+  const body = {decision:$("decision").value, approver:$("approver").value, role:$("role").value, comments:$("comments").value};
+  const r = await fetch(`/api/assessments/${aid}/review`, {method:"POST", headers:{"content-type":"application/json"}, body:JSON.stringify(body)});
+  const j = await r.json();
+  $("reviewMsg").innerHTML = r.ok ? `<b>Recorded: ${esc(j.status)}</b>` : `<span class="err">${esc(typeof j.detail === "string" ? j.detail : JSON.stringify(j.detail))}</span>`;
+  poll();
+};
+</script>
+</body>
+</html>

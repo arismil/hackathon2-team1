@@ -1,17 +1,46 @@
 [project]
 name = "hackathon2-team1"
 version = "0.1.0"
-description = "Add your description here"
+description = "NFS AI-Powered Vendor Risk & Procurement Deep Agent (hackathon PoC)"
 readme = "README.md"
 authors = [
     { name = "Aris Miletis", email = "arismiletis@outlook.com" }
 ]
 requires-python = ">=3.14"
-dependencies = []
+dependencies = [
+    "chromadb>=1.5.9",
+    "fastapi>=0.141.1",
+    "httpx>=0.28.1",
+    "langchain>=1.4.2",
+    "langchain-mcp-adapters>=0.3.2",
+    "langchain-openai>=1.6.5",
+    "langfuse>=4.15.4",
+    "langgraph>=1.2.12",
+    "langgraph-checkpoint-sqlite>=3.1.1",
+    "mcp>=1.30.0",
+    "pydantic-settings>=2.15.0",
+    "pypdf>=6.19.0",
+    "pyyaml>=6.0.3",
+    "uvicorn[standard]>=0.53.0",
+]
 
 [project.scripts]
-hackathon2-team1 = "hackathon2_team1:main"
+nfs-agent = "hackathon2_team1.cli:main"
 
 [build-system]
 requires = ["uv_build>=0.12.7,<0.13.0"]
 build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+    "pytest-asyncio>=1.4.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+addopts = "-m \"not e2e\""
+asyncio_default_fixture_loop_scope = "function"
+markers = ["e2e: end-to-end run against Azure OpenAI (skipped without credentials)"]
+filterwarnings = ["ignore::DeprecationWarning"]

@@ -1,0 +1,9 @@
+.venv
+.git
+.env
+data
+evaluation-results
+**/__pycache__
+.pytest_cache
+*.pdf.md
+hackathon 2- handout*
