@@ -5,7 +5,7 @@
     uv run python -m evaluation.run_eval --judge         # add LLM-as-judge citation-support scoring
     uv run python -m evaluation.run_eval --full          # include expensive E2E variants
 
-Results: evaluation-results/<timestamp>/{results.json, summary.md, <case>-report.md} and
+Results: evaluation-results/<timestamp>/{results.json, summary.md, <case>-report.md/.pdf} and
 evaluation-results/latest.md. Scores are also pushed to Langfuse (per E2E trace) when configured.
 """
 
@@ -28,6 +28,7 @@ from hackathon2_team1.guardrails.decision_rules import decide
 from hackathon2_team1.guardrails.evidence import effective_status, normalize_finding
 from hackathon2_team1.guardrails.input import check_request
 from hackathon2_team1.mcp_client import ToolGateway
+from hackathon2_team1.pdf import write_pdf
 from hackathon2_team1.schemas import (
     DOMAIN_AGENT,
     Citation,
@@ -201,6 +202,7 @@ async def e2e_case(case: dict, judge: bool, out_dir: Path) -> list[Metric]:
     v = snap["values"]
     cid = case["id"]
     (out_dir / f"{cid}-report.md").write_text(v.get("report_markdown", ""))
+    write_pdf(v.get("report_markdown", ""), out_dir / f"{cid}-report.pdf", f"Vendor Assessment - {req.vendor_name}")
     m: list[Metric] = []
 
     def add(metric, value, passed, threshold="", detail=""):

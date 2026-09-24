@@ -10,6 +10,7 @@ from pathlib import Path
 
 from .config import PROJECT_DIR, get_settings
 from .observability import setup_logging
+from .pdf import write_pdf
 
 DEFAULT_REQUEST = PROJECT_DIR / "evaluation" / "requests" / "asteria.json"
 
@@ -71,7 +72,8 @@ async def _assess(args) -> int:
     out.mkdir(parents=True, exist_ok=True)
     (out / f"{aid}.md").write_text(snap["values"].get("report_markdown", ""))
     (out / f"{aid}.json").write_text(json.dumps(snap, indent=2, default=str))
-    print(f"\nReport: {out / (aid + '.md')}")
+    write_pdf(snap["values"].get("report_markdown", ""), out / f"{aid}.pdf", f"Vendor Assessment - {req.vendor_name}")
+    print(f"\nReport: {out / (aid + '.md')} (PDF: {out / (aid + '.pdf')})")
     return 0
 
 
