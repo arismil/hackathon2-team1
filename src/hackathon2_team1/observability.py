@@ -19,6 +19,21 @@ from .config import get_settings
 
 _log = logging.getLogger("nfs.events")
 _client = None
+_trace_failure: ContextVar[str | None] = ContextVar("trace_failure", default=None)
+_trace_id: ContextVar[str | None] = ContextVar("trace_id", default=None)
+_trace_ids_by_session: dict[str, str] = {}
+
+_FAILURE_EVENT_NAMES = {
+    "human_review_rejected",
+    "injection_quarantined",
+    "input_blocked",
+    "mcp_fallback",
+    "planner_fallback",
+    "specialist_budget_exhausted",
+    "specialist_failed",
+    "synthesis_failed",
+    "run_failed",
+}
 
 
 def setup_logging(level: int = logging.INFO) -> None:
@@ -42,6 +57,25 @@ def add_log_file(path: Path) -> logging.FileHandler:
 def event(name: str, **fields: Any) -> None:
     """Structured operational event (one JSON line)."""
     _log.info(json.dumps({"event": name, "ts": round(time.time(), 3), **fields}, default=str))
+    tool_failed = name == "tool_call" and not fields.get("ok", True) and not fields.get("denied", False)
+    is_named_failure = name in _FAILURE_EVENT_NAMES or name.endswith(("_failed", "_failure", "_fallback"))
+    if not is_named_failure and not tool_failed:
+        return
+    lf = langfuse()
+    if not lf:
+        return
+    try:
+        message = str(fields.get("error") or fields.get("reason") or name)
+        level = "ERROR" if name.endswith(("_failed", "_failure")) or tool_failed else "WARNING"
+        trace_id = _trace_id.get() or _trace_ids_by_session.get(str(fields.get("run_id")))
+        with lf.start_as_current_observation(
+            name=f"operational.{name}", as_type="span", input=fields,
+            output={"event": name, "fields": fields}, level=level, status_message=message,
+            trace_context={"trace_id": trace_id} if trace_id else None,
+        ):
+            pass
+    except Exception as e:  # pragma: no cover - observability must never break the run
+        _log.warning("langfuse event failed: %s", e)
 
 
 def langfuse():
@@ -77,8 +111,35 @@ def trace_run(name: str, session_id: str, input: Any = None, tags: list[str] | N
 
     with lf.start_as_current_observation(name=name, as_type="agent", input=input, metadata=metadata) as span:
         with propagate_attributes(session_id=session_id, tags=tags or [], trace_name=name):
-            yield lf.get_current_trace_id()
-            span.update(output={"status": "completed"})
+            token = _trace_failure.set(None)
+            trace_token = _trace_id.set(lf.get_current_trace_id())
+            _trace_ids_by_session[session_id] = lf.get_current_trace_id()
+            try:
+                yield lf.get_current_trace_id()
+            except Exception as e:
+                error = f"{type(e).__name__}: {e}"
+                _trace_failure.set(error)
+                span.update(output={"status": "failed", "error": error}, level="ERROR", status_message=error)
+                raise
+            finally:
+                error = _trace_failure.get()
+                if error:
+                    span.update(output={"status": "failed", "error": error}, level="ERROR", status_message=error)
+                else:
+                    span.update(output={"status": "completed"})
+                _trace_failure.reset(token)
+                _trace_id.reset(trace_token)
+                _trace_ids_by_session.pop(session_id, None)
+
+
+def mark_trace_failed(error: str) -> None:
+    """Mark a caught workflow error on the active root trace."""
+    _trace_failure.set(error)
+    lf = langfuse()
+    if lf:
+        with contextlib.suppress(Exception):
+            lf.update_current_span(output={"status": "failed", "error": error}, level="ERROR",
+                                   status_message=error)
 
 
 @contextlib.contextmanager

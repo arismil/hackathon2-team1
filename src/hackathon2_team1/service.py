@@ -50,6 +50,7 @@ class AssessmentService:
             except Exception as e:  # keep the run inspectable; the error is surfaced in the snapshot
                 error = f"{type(e).__name__}: {e}"
                 obs.event("run_failed", run_id=aid, phase=name, error=error)
+                obs.mark_trace_failed(error)
         seconds = round(time.perf_counter() - t0, 2)
         snap = await self.get(aid)
         tokens = {m: dict(u) for m, u in usage.usage_metadata.items()}
