@@ -84,7 +84,7 @@ HUMAN REVIEW**. To record a sign-off as well, use `uv run nfs-agent assess` (see
 | 7. Human review | Wrong role → 403; APPROVE on a HIGH-risk vendor → refused; exec risk owner records the decision via a human-only MCP tool | UI review panel |
 | 8. Evaluation | `uv run python -m evaluation.run_eval --judge` → metrics table | `evaluation-results/latest.md` |
 | 9. Observability | Trace tree: agent → nodes → LLM generations (tokens) → MCP tools → guardrails → evaluator; scores | Langfuse |
-| 10. Deployment | `docker compose` locally; Azure Container Apps script + Log Analytics KQL | `deployment/` |
+| 10. Deployment | `docker compose` locally (MCP server, API, Langfuse) | `deployment/` |
 
 ## Mandatory functional requirements
 
@@ -162,7 +162,7 @@ src/hackathon2_team1/
 tests/                                          offline unit/integration/fallback tests + Azure e2e
 evaluation/         run_eval.py, cases.yaml, requests/
 evaluation-results/ evaluation outputs (Asteria)
-deployment/         Azure Container Apps script + Log Analytics guide
+deployment/         Docker Compose deployment guide
 Dockerfile, docker-compose.yml, .env.example, pyproject.toml, uv.lock
 ```
 

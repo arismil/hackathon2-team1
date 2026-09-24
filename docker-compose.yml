@@ -35,8 +35,8 @@ services:
       MCP_SERVER_URL: http://mcp-server:8001/mcp
       LANGFUSE_HOST: http://langfuse-web:3000
     depends_on:
-      mcp-server:
-        condition: service_started
+      mcp-server:  # healthy = index built and listening; avoids a degraded first run
+        condition: service_healthy
 
   # ------------------------------------------------------------------ Langfuse v3 (from the official compose)
   langfuse-worker:

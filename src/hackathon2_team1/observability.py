@@ -1,8 +1,7 @@
 """Langfuse tracing (self-hosted, OpenTelemetry-based SDK) + structured JSON event logs.
 
 Everything degrades to no-ops when Langfuse is not configured, so the agent never fails
-because observability is down. JSON event logs go to stdout, which Azure Container Apps
-ships to Log Analytics.
+because observability is down. JSON event logs go to stdout (`docker compose logs`).
 """
 
 from __future__ import annotations
