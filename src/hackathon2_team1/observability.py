@@ -37,11 +37,13 @@ def event(name: str, **fields: Any) -> None:
 
 def langfuse():
     global _client
-    if _client is None and get_settings().langfuse_enabled:
+    s = get_settings()
+    if _client is None and s.langfuse_enabled:
         try:
-            from langfuse import get_client
+            from langfuse import Langfuse
 
-            _client = get_client()
+            # pass keys explicitly: .env is read by Settings, not exported to os.environ outside docker
+            _client = Langfuse(public_key=s.langfuse_public_key, secret_key=s.langfuse_secret_key, host=s.langfuse_host or None)
         except Exception as e:  # pragma: no cover - observability must never break the run
             _log.warning("langfuse disabled: %s", e)
     return _client
@@ -52,7 +54,7 @@ def callbacks() -> list:
         return []
     from langfuse.langchain import CallbackHandler
 
-    return [CallbackHandler()]
+    return [CallbackHandler(public_key=get_settings().langfuse_public_key)]
 
 
 @contextlib.contextmanager
