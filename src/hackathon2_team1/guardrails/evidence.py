@@ -9,12 +9,13 @@
 from __future__ import annotations
 
 import re
-from difflib import SequenceMatcher
 
+from ..rag import NFS_POLICY_SOURCES, vendor_slug
 from ..schemas import Citation, EvidenceBasis, EvidenceChunk, Finding, FindingStatus
 
 _WS = re.compile(r"\s+")
-_NUM = re.compile(r"\d+(?:[.,]\d+)*")
+_MANDATORY = re.compile(r"\b(must|required|mandatory|shall|prohibited|cannot|may not|no later than)\b", re.I)
+_NEGATIVE = {"not", "never", "no", "without", "cannot"}
 _QUOTES = str.maketrans({"‘": "'", "’": "'", "“": '"', "”": '"', "–": "-", "—": "-"})
 
 
@@ -24,27 +25,32 @@ def _norm(s: str) -> str:
     return _WS.sub(" ", s).strip().strip(".")
 
 
-def quote_in_text(quote: str, text: str, threshold: float = 0.88) -> bool:
+def _safe_exact_match(text: str, start: int) -> bool:
+    # A short exact substring can still omit an immediately preceding negation.
+    preceding = re.findall(r"\b[a-z]+\b", text[max(0, start - 35):start])[-3:]
+    return not any(word in _NEGATIVE for word in preceding)
+
+
+def quote_in_text(quote: str, text: str) -> bool:
     q, t = _norm(quote), _norm(text)
     if len(q) < 8:
         return False
-    if q in t:
-        return True
-    # figures must match exactly: a misquoted number ("72 hours" vs "24 hours") is never "close enough"
-    if not set(_NUM.findall(q)) <= set(_NUM.findall(t)):
+    # Citations are requested verbatim. Ellipses may omit text, but each piece
+    # must appear in order with the same numbers and polarity.
+    parts = [p.strip() for p in re.split(r"\.\.\.|\u2026", q) if p.strip()]
+    if not parts or any(len(part) < 8 for part in parts):
         return False
-    # tolerate small paraphrase / ellipsis: best-matching window similarity
-    parts = [p.strip() for p in re.split(r"\.\.\.|…", q) if len(p.strip()) >= 8]
-    if len(parts) > 1 and all(p in t for p in parts):
-        return True
-    n = len(q)
-    best = 0.0
-    step = max(1, n // 8)
-    for i in range(0, max(1, len(t) - n + 1), step):
-        best = max(best, SequenceMatcher(None, q, t[i : i + n]).ratio())
-        if best >= threshold:
-            return True
-    return False
+    offset = 0
+    for part in parts:
+        found = False
+        while (start := t.find(part, offset)) >= 0:
+            offset = start + len(part)
+            if _safe_exact_match(t, start):
+                found = True
+                break
+        if not found:
+            return False
+    return True
 
 
 def verify_citation(c: Citation, ledger: dict[str, EvidenceChunk]) -> Citation:
@@ -56,31 +62,42 @@ def verify_citation(c: Citation, ledger: dict[str, EvidenceChunk]) -> Citation:
     return c.model_copy(update={"verified": True, "verification_note": None})
 
 
-def normalize_finding(f: Finding, ledger: dict[str, EvidenceChunk]) -> Finding:
+def normalize_finding(f: Finding, ledger: dict[str, EvidenceChunk], vendor: str | None = None) -> Finding:
     f = f.model_copy(deep=True)
     f.citations = [verify_citation(c, ledger) for c in f.citations]
     valid = [c for c in f.citations if c.verified]
+    reference_ids = set(re.findall(r"[A-Z]{2,3}-\d{3}", f.policy_reference or ""))
+    policy = [c for c in valid
+              if (source := ledger[c.chunk_id].source) in NFS_POLICY_SOURCES
+              and ledger[c.chunk_id].doc_type == "nfs_policy"
+              and ledger[c.chunk_id].trust == "nfs_internal"
+              and (not reference_ids or NFS_POLICY_SOURCES[source] in reference_ids)]
+    vendor_citations = [c for c in valid
+                        if ledger[c.chunk_id].doc_type == "vendor_submission"
+                        and ledger[c.chunk_id].trust == "untrusted_vendor_supplied"
+                        and (vendor is None or vendor_slug(ledger[c.chunk_id].vendor) == vendor_slug(vendor))]
     notes = list(f.guardrail_notes)
 
+    # The model cannot clear a mandatory control. Missing policy evidence
+    # leaves the control open until a trusted policy passage is obtained.
+    f.mandatory_control = any(_MANDATORY.search(ledger[c.chunk_id].text) for c in policy) if policy else True
     if f.evidence_basis == EvidenceBasis.RETRIEVED and not valid:
         f.evidence_basis = EvidenceBasis.INFERRED
         notes.append("claimed RETRIEVED but no citation could be verified -> downgraded to INFERRED (unverified)")
-    if f.evidence_basis == EvidenceBasis.MISSING and f.status == FindingStatus.PASS:
-        f.status = FindingStatus.UNKNOWN
-        notes.append("PASS without evidence is not allowed -> UNKNOWN (VR-006 §4)")
-    if f.status == FindingStatus.PASS and not valid:
-        notes.append("PASS is not backed by a verified citation -> treated as UNKNOWN for decision rules")
-    only_vendor = valid and all(ledger[c.chunk_id].trust.startswith("untrusted") for c in valid)
-    if f.status == FindingStatus.PASS and only_vendor:
-        notes.append("PASS rests solely on vendor self-attestation")
 
-    f.verified = bool(valid)
+    unsupported_pass = f.status == FindingStatus.PASS and (
+        f.evidence_basis == EvidenceBasis.MISSING or not policy or not vendor_citations)
+    if unsupported_pass:
+        f.status = FindingStatus.UNKNOWN
+        notes.append("PASS requires cited NFS policy and correct-vendor evidence -> UNKNOWN")
+
+    f.verified = bool(policy and vendor_citations) and not unsupported_pass
     f.guardrail_notes = notes
     return f
 
 
 def effective_status(f: Finding) -> FindingStatus:
     """Status used by decision rules: an unverified PASS counts as UNKNOWN."""
-    if f.status == FindingStatus.PASS and not any(c.verified for c in f.citations):
+    if f.status == FindingStatus.PASS and not f.verified:
         return FindingStatus.UNKNOWN
     return f.status

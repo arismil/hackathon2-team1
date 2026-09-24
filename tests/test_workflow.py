@@ -5,7 +5,11 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from hackathon2_team1.schemas import VendorAssessmentRequest
+import pytest
+
+from hackathon2_team1 import graph
+from hackathon2_team1.guardrails.decision_rules import decide
+from hackathon2_team1.schemas import DomainAssessment, VendorAssessmentRequest
 from hackathon2_team1.service import AssessmentService
 
 REQUEST = VendorAssessmentRequest.model_validate_json(
@@ -64,6 +68,59 @@ async def test_full_workflow_guardrails_and_human_review(settings, scripted_llm)
     assert snap["status"].endswith("_BY_HUMAN")
     assert snap["values"]["human_decision"]["record"]["status"] in ("CONDITIONALLY_APPROVED", "REJECTED")
     assert "Human decision" in snap["values"]["report_markdown"]
+    with pytest.raises(ValueError, match="not awaiting human review"):
+        await svc.resume(snap["assessment_id"], {"decision": "REJECT", "approver": "Eve",
+                                                  "role": "executive_risk_owner"})
+
+
+@pytest.mark.parametrize("response", [
+    {"error": "write failed"},
+    {"assessment_id": "ASM-WRONG", "status": "REJECTED"},
+    {"assessment_id": "ASM-T1", "status": "PENDING_HUMAN_REVIEW"},
+])
+async def test_human_review_requires_confirmed_persistence(monkeypatch, response):
+    req = REQUEST.model_copy(update={"data_classification": "CONFIDENTIAL"})
+    state = {"assessment_id": "ASM-T1", "decision": decide(req, [], {}, None).model_dump(mode="json"),
+             "review_attempts": []}
+    monkeypatch.setattr(graph, "interrupt", lambda _: {"decision": "REJECT", "approver": "Eve",
+                                                      "role": "executive_risk_owner"})
+
+    class Gateway:
+        def __init__(self, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            pass
+
+        async def call(self, name, args):
+            assert name == "record_human_decision" and args["assessment_id"] == "ASM-T1"
+            return json.dumps(response)
+
+    monkeypatch.setattr(graph, "ToolGateway", Gateway)
+    result = await graph.human_review(state)
+    assert "human_decision" not in result
+    assert not result["review_attempts"][-1]["accepted"]
+    assert graph.after_human({**state, **result}) == "human_review"
+
+
+@pytest.mark.parametrize("calculation,expected", [
+    ({"inputs": {"users": 2000}, "annual_recurring_eur": 912000, "year_one_total_eur": 997000}, 912000),
+    (None, None),
+])
+async def test_procurement_value_comes_from_calculator_not_specialist(calculation, expected):
+    procurement = DomainAssessment(domain="procurement_commercial", summary="pricing", risk_rating="LOW",
+                                   findings=[], annual_contract_value_eur=1, year_one_cost_eur=1)
+    events = ([{"agent": "procurement_agent", "tool": "calculate_tco", "ok": True,
+                "result": calculation}] if calculation else [])
+    state = {"request": REQUEST.model_dump(mode="json"),
+             "domain_results": [procurement.model_dump(mode="json")], "tool_events": events}
+    result = await graph.consolidate(state)
+    actual = DomainAssessment.model_validate(result["domains"][0])
+    assert actual.annual_contract_value_eur == expected
+    assert actual.year_one_cost_eur == (997000 if expected else None)
 
 
 async def test_agent_failure_is_retried_and_run_completes(settings, scripted_llm):

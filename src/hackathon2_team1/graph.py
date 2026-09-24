@@ -251,8 +251,21 @@ async def consolidate(state: AssessmentState) -> dict:
         base.year_one_cost_eur = base.year_one_cost_eur or r.year_one_cost_eur
         base.ai_risk_tier = base.ai_risk_tier or r.ai_risk_tier
     domains = [merged[d] for d in Domain if d in merged]
+    procurement = merged.get(Domain.PROCUREMENT)
+    if procurement:
+        calculations = [e["result"] for e in state.get("tool_events", [])
+                        if e.get("ok") and e.get("tool") == "calculate_tco"
+                        and e.get("agent") == "procurement_agent" and isinstance(e.get("result"), dict)
+                        and e["result"].get("inputs", {}).get("users") == _req(state).number_of_users
+                        and isinstance(e["result"].get("annual_recurring_eur"), (int, float))
+                        and isinstance(e["result"].get("year_one_total_eur"), (int, float))]
+        selected = max(calculations, key=lambda c: c["annual_recurring_eur"], default=None)
+        procurement.annual_contract_value_eur = selected["annual_recurring_eur"] if selected else None
+        procurement.year_one_cost_eur = selected["year_one_total_eur"] if selected else None
+        if not selected:
+            procurement.missing_evidence.append("No successful deterministic TCO calculation for the requested user count")
     for d in domains:
-        d.findings = [normalize_finding(f, ledger) for f in d.findings]
+        d.findings = [normalize_finding(f, ledger, vendor=_req(state).vendor_name) for f in d.findings]
         for f in d.findings:
             f.domain = d.domain
         for c in d.contradictions:
@@ -395,6 +408,15 @@ async def human_review(state: AssessmentState) -> dict:
                 "approver": hd.approver, "comments": hd.comments}))
     except Exception as e:
         rec = {"error": str(e)}
+    expected_status = {"APPROVE": "APPROVED", "CONDITIONAL APPROVAL": "CONDITIONALLY_APPROVED",
+                       "REJECT": "REJECTED"}[hd.decision.value]
+    persisted = (isinstance(rec, dict) and rec.get("assessment_id") == state["assessment_id"]
+                 and rec.get("status") == expected_status)
+    if not persisted:
+        detail = rec.get("error", "unexpected assessment ID or status") if isinstance(rec, dict) else "invalid response"
+        reason = f"human decision persistence failed: {detail}"
+        obs.event("human_review_rejected", run_id=state["assessment_id"], reason=reason)
+        return {"review_attempts": [{"input": hd.model_dump(mode="json"), "accepted": False, "reason": reason}]}
     obs.event("human_decision", run_id=state["assessment_id"], decision=hd.decision, role=hd.role)
     return {"human_decision": {**hd.model_dump(mode="json"), "record": rec},
             "review_attempts": [{"input": hd.model_dump(mode="json"), "accepted": True, "reason": None}]}

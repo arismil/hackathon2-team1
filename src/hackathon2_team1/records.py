@@ -44,12 +44,18 @@ class RecordStore:
         now = datetime.now(UTC).isoformat()
         status = {"APPROVE": "APPROVED", "CONDITIONAL APPROVAL": "CONDITIONALLY_APPROVED", "REJECT": "REJECTED"}[decision]
         with self._conn() as c:
+            updated = c.execute(
+                "UPDATE assessments SET status=?, updated_at=? "
+                "WHERE assessment_id=? AND status='PENDING_HUMAN_REVIEW'",
+                (status, now, assessment_id),
+            )
+            if updated.rowcount != 1:
+                raise ValueError(f"assessment '{assessment_id}' is not pending human review")
             c.execute(
                 "INSERT INTO human_decisions (assessment_id, decision, approver, role, comments, created_at) "
                 "VALUES (?,?,?,?,?,?)",
                 (assessment_id, decision, approver, role, comments, now),
             )
-            c.execute("UPDATE assessments SET status=?, updated_at=? WHERE assessment_id=?", (status, now, assessment_id))
         return {"assessment_id": assessment_id, "status": status, "decided_by": approver, "decided_at": now}
 
     def prior_assessments(self, vendor: str | None = None, limit: int = 10) -> list[dict]:

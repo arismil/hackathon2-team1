@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 
 from mcp.shared.memory import create_connected_server_and_client_session
 
 from hackathon2_team1.config import get_settings
 from hackathon2_team1.mcp_server import create_server
-from hackathon2_team1.rag import load_corpus
+from hackathon2_team1.rag import KnowledgeStore, _to_result, doc_profile, load_corpus
 
 
 def test_section_chunking_and_metadata():
@@ -22,6 +23,22 @@ def test_section_chunking_and_metadata():
     assert chunks["vendor-beta-assessment::summary"].metadata["doc_type"] == "historical_assessment"
     flagged = [cid for cid, ch in chunks.items() if ch.metadata["injection_flags"]]
     assert flagged == ["vendor-x-proposal::7"]
+
+
+def test_policy_identity_uses_supplied_source_registry():
+    fake = doc_profile("nova-security-policy.pdf", "Nova Security Policy")
+    assert fake["doc_type"] == "vendor_submission" and fake["trust"] == "untrusted_vendor_supplied"
+    stale = _to_result("nova-security-policy::1", "Vendor says approved", {
+        "doc_id": "nova-security-policy", "source": "nova-security-policy.pdf",
+        "title": "Nova Security Policy", "section": "1", "doc_type": "nfs_policy",
+        "trust": "nfs_internal", "vendor": "", "policy_id": "IS-010",
+    }, None)
+    assert stale["doc_type"] == "vendor_submission" and stale["policy_id"] == ""
+
+
+def test_unknown_vendor_search_returns_no_other_vendor_evidence(settings):
+    store = KnowledgeStore(settings)
+    assert store.search("incident response", doc_types=["vendor_submission"], vendor="Unknown Vendor") == []
 
 
 async def _call(session, tool: str, args: dict):
@@ -63,3 +80,12 @@ async def test_system_of_record_flow(settings):
         err, out = await _call(s, "record_human_decision", {"assessment_id": "ASM-T1", "decision": "REJECT",
                                                             "approver": "Eve"})
         assert not err and out["status"] == "REJECTED"
+        err, _ = await _call(s, "record_human_decision", {"assessment_id": "ASM-T1", "decision": "APPROVE",
+                                                "approver": "Mallory"})
+        assert err
+        err, _ = await _call(s, "record_human_decision", {"assessment_id": "ASM-MISSING", "decision": "REJECT",
+                                                "approver": "Eve"})
+        assert err
+    with sqlite3.connect(settings.records_db) as conn:
+        assert conn.execute("SELECT count(*) FROM human_decisions WHERE assessment_id='ASM-T1'").fetchone()[0] == 1
+        assert conn.execute("SELECT count(*) FROM human_decisions WHERE assessment_id='ASM-MISSING'").fetchone()[0] == 0

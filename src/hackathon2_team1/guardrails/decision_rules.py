@@ -129,6 +129,9 @@ def decide(
         computed_overall = max_risk(computed_overall, RiskLevel.MEDIUM)
     if rule("R04", "VR-006 §3", bool(mand_open), "APPROVE requires all mandatory controls satisfied"):
         allowed.discard(Recommendation.APPROVE)
+    if rule("R11", "VR-006 §4", not findings or any(effective_status(f) == FindingStatus.UNKNOWN for f in findings),
+            "an incomplete assessment or UNKNOWN finding cannot support unconditional APPROVE"):
+        allowed.discard(Recommendation.APPROVE)
     if rule("R05", "VR-006 §3", bool(unfixable),
             "mandatory control(s) cannot be met even with contractual remediation: "
             + "; ".join(f.title for f in unfixable)):

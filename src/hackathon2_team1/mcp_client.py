@@ -25,7 +25,7 @@ from mcp.shared.memory import create_connected_server_and_client_session
 
 from .config import Settings, get_settings
 from .guardrails.access import is_allowed
-from .guardrails.injection import quarantine_text
+from .guardrails.injection import quarantine_payload, quarantine_text
 from .observability import event
 from .schemas import EvidenceChunk, ToolEvent
 
@@ -44,6 +44,7 @@ class EvidenceLedger:
             c = EvidenceChunk(
                 chunk_id=r["chunk_id"], doc_id=r["doc_id"], source=r["source"], title=r["title"],
                 section=r["section"], doc_type=r["doc_type"], trust=r["trust"], text=r["text"],
+                vendor=r.get("vendor", ""),
                 injection_flags=list(r.get("injection_flags") or []),
             )
             self.chunks[c.chunk_id] = c
@@ -169,13 +170,19 @@ class ToolGateway:
     def _finish(self, name: str, args: dict, t0: float, ok: bool, text: str = "", error: str | None = None,
                 denied: bool = False) -> str:
         chunk_ids: list[str] = []
+        calculation = None
         if ok:
             text, chunk_ids = self._guard_result(text, args)
+            if name == "calculate_tco":
+                try:
+                    calculation = json.loads(text)
+                except json.JSONDecodeError:
+                    pass
         ev = ToolEvent(agent=self.agent, tool=name, args=args, ok=ok, denied=denied, error=error,
                        duration_ms=int((time.perf_counter() - t0) * 1000), transport=self.transport,
-                       result_chunks=chunk_ids)
+                       result_chunks=chunk_ids, result=calculation)
         self.ledger.events.append(ev)
-        event("tool_call", run_id=self.run_id, **ev.model_dump(exclude={"args"}), query=args.get("query"))
+        event("tool_call", run_id=self.run_id, **ev.model_dump(exclude={"args", "result"}), query=args.get("query"))
         if ok:
             return text
         return json.dumps({
@@ -185,28 +192,39 @@ class ToolGateway:
         })
 
     def _guard_result(self, text: str, args: dict) -> tuple[str, list[str]]:
+        def report(field: str, patterns: list[str]) -> None:
+            event("injection_quarantined", run_id=self.run_id, agent=self.agent,
+                  field=field, patterns=patterns)
+
         try:
             data = json.loads(text)
         except json.JSONDecodeError:
-            return text, []
+            safe, hit = quarantine_text(text, "tool response")
+            if hit.detected:
+                report("tool response", hit.patterns)
+            return safe, []
         results = data.get("results") if isinstance(data, dict) else None
         if not isinstance(results, list):
-            return text, []
+            return json.dumps(quarantine_payload(data, "tool response", report), ensure_ascii=False), []
         safe, ids = [], []
-        for r in results:
+        for i, r in enumerate(results):
             if not isinstance(r, dict) or "chunk_id" not in r:
                 continue
             self.ledger.add(r, self.agent, args.get("query"))
             ids.append(r["chunk_id"])
-            clean, inj = quarantine_text(r["text"], r["chunk_id"])
             item = {k: r.get(k) for k in _LLM_FIELDS}
-            if inj.detected or r.get("injection_flags"):
-                item["text"] = clean
+            detected: set[str] = set()
+
+            def report_chunk(field: str, patterns: list[str]) -> None:
+                detected.update(patterns)
+                report(field, patterns)
+
+            item = quarantine_payload(item, f"results[{i}]", report_chunk)
+            if detected or r.get("injection_flags"):
                 item["guardrail"] = "QUARANTINED_PROMPT_INJECTION"
                 self.ledger.chunks[r["chunk_id"]].injection_flags = sorted(
-                    set(self.ledger.chunks[r["chunk_id"]].injection_flags) | set(inj.patterns))
-                event("injection_quarantined", run_id=self.run_id, agent=self.agent, chunk_id=r["chunk_id"],
-                      patterns=inj.patterns)
+                    set(self.ledger.chunks[r["chunk_id"]].injection_flags) | detected)
             safe.append(item)
-        data["results"] = safe
-        return json.dumps(data, ensure_ascii=False), ids
+        other = quarantine_payload({k: v for k, v in data.items() if k != "results"}, "tool response", report)
+        other["results"] = safe
+        return json.dumps(other, ensure_ascii=False), ids

@@ -12,6 +12,7 @@ from langchain.agents.structured_output import ToolStrategy
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from .config import Settings, get_settings
+from .guardrails.injection import quarantine_payload
 from .llm import get_chat_model
 from .mcp_client import EvidenceLedger, ToolGateway
 from .observability import event
@@ -43,6 +44,13 @@ from .schemas import (
 )
 
 log = logging.getLogger(__name__)
+
+
+def _model_data(value, source: str):
+    return quarantine_payload(
+        value, source,
+        lambda field, patterns: event("injection_quarantined", field=field, patterns=patterns),
+    )
 
 
 # --------------------------------------------------------------------------- planner
@@ -106,6 +114,8 @@ def enforce_plan(plan: AssessmentPlan) -> tuple[AssessmentPlan, list[dict]]:
 
 
 async def make_plan(req: VendorAssessmentRequest, catalog: list[dict]) -> tuple[AssessmentPlan, list[dict]]:
+    catalog = _model_data(catalog, "document catalog")
+    request = _model_data(req.model_dump(mode="json"), "assessment request")
     catalog_txt = "\n".join(
         f"- {d['doc_id']} ({d['doc_type']}, trust={d['trust']}) {d.get('policy_id', '')} {d['title']}" for d in catalog
     ) or "(catalog unavailable)"
@@ -115,7 +125,7 @@ async def make_plan(req: VendorAssessmentRequest, catalog: list[dict]) -> tuple[
     msgs = [
         SystemMessage(PLANNER_SYSTEM),
         HumanMessage(
-            f"REQUEST:\n{req.model_dump_json(indent=2)}\n\nDOCUMENT CATALOG:\n{catalog_txt}\n\n"
+            f"REQUEST DATA:\n{json.dumps(request, indent=2)}\n\nDOCUMENT CATALOG DATA:\n{catalog_txt}\n\n"
             f"BASELINE CHECKS (always include, add request-specific ones):\n{baseline}"
         ),
     ]
@@ -161,11 +171,14 @@ async def run_specialist(task: PlanTask, req: VendorAssessmentRequest, run_id: s
     degraded = None
     system = SPECIALIST_SYSTEM.format(
         title=AGENT_TITLES[task.domain], domain=task.domain.value, focus=DOMAIN_FOCUS[task.domain],
-        vendor=req.vendor_name, max_calls=max(4, settings.specialist_model_call_limit - 4),
+        max_calls=max(4, settings.specialist_model_call_limit - 4),
     )
+    request = _model_data(req.model_dump(mode="json"), "assessment request")
+    task_data = _model_data(task.model_dump(mode="json"), "specialist task")
     user = SPECIALIST_TASK.format(
-        request=req.model_dump_json(indent=2), task_id=task.task_id, objective=task.objective,
-        checks="\n".join(f"- {c.check_id}: {c.description} (hint: {c.policy_hint or '-'})" for c in task.required_checks),
+        request=json.dumps(request, indent=2), task_id=task_data["task_id"], objective=task_data["objective"],
+        checks="\n".join(f"- {c['check_id']}: {c['description']} (hint: {c['policy_hint'] or '-'})"
+                         for c in task_data["required_checks"]),
         domain=task.domain.value,
     )
     try:
@@ -239,6 +252,7 @@ async def synthesize(req: VendorAssessmentRequest, domains: list[DomainAssessmen
         "triggered_policy_rules": [r.model_dump() for r in rules if r.triggered],
         "recommendations_permitted_by_rules": allowed,
     }
+    payload = _model_data(payload, "synthesis evidence")
     try:
         llm = get_chat_model("synthesizer").with_structured_output(RiskDecisionDraft, method="function_calling")
         return await llm.ainvoke(

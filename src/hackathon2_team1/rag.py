@@ -25,7 +25,13 @@ _BOILERPLATE = [
 _META = re.compile(r"^(Organization|Classification|Effective date):\s*(.*)$")
 _NUMBERED = re.compile(r"^(\d{1,2})\.\s+(\S.{0,80})$")  # "3. Encryption"
 _LETTERED = re.compile(r"^([A-Z])\.\s+(\S.{0,80})$")  # "B. Encryption"
-_POLICY_ID = re.compile(r"\bPolicy ([A-Z]{2,3}-\d{3})\b")
+NFS_POLICY_SOURCES = {
+    "procurement-policy.pdf": "PR-001",
+    "information-security-policy.pdf": "IS-010",
+    "ai-governance-policy.pdf": "AI-004",
+    "vendor-risk-policy.pdf": "VR-006",
+    "data-classification-policy.pdf": "DC-002",
+}
 
 
 @dataclass
@@ -40,17 +46,15 @@ class Chunk:
 
 
 def doc_profile(rel_path: str, title: str) -> dict:
-    """Classify a document by location/name. Vendor submissions are untrusted third-party content."""
+    """Only supplied NFS sources carry policy authority."""
     name = Path(rel_path).stem
     if rel_path.startswith("historical-vendor-assessments/"):
         return {"doc_type": "historical_assessment", "trust": "nfs_internal", "vendor": name.split("-")[1]}
-    if name.endswith("-policy"):
+    if rel_path in NFS_POLICY_SOURCES:
         return {"doc_type": "nfs_policy", "trust": "nfs_internal", "vendor": ""}
-    if name.startswith("vendor-"):
-        # vendor display name = words of the title before the document kind
-        vendor = re.split(r"\b(Enterprise|Security|Commercial|Proposal|Pricing)\b", title)[0].strip()
-        return {"doc_type": "vendor_submission", "trust": "untrusted_vendor_supplied", "vendor": vendor}
-    return {"doc_type": "other", "trust": "unknown", "vendor": ""}
+    # Every other submitted PDF is vendor evidence, even if its name contains "policy".
+    vendor = re.split(r"\b(Enterprise|Security|Commercial|Proposal|Pricing)\b", title)[0].strip()
+    return {"doc_type": "vendor_submission", "trust": "untrusted_vendor_supplied", "vendor": vendor}
 
 
 def vendor_slug(name: str) -> str:
@@ -86,8 +90,6 @@ def parse_pdf(path: Path, knowledge_dir: Path) -> list[Chunk]:
             body.append(ln)
     title = header[0] if header else doc_id
     subtitle = " ".join(header[1:])
-    m_pid = _POLICY_ID.search(f"{title} {subtitle}")
-    policy_id = m_pid.group(1) if m_pid else ""
     profile = doc_profile(rel, title)
 
     lettered_ok = any(_LETTERED.match(ln) for ln in body)
@@ -119,7 +121,7 @@ def parse_pdf(path: Path, knowledge_dir: Path) -> list[Chunk]:
                 metadata={
                     **profile,
                     "vendor_slug": vendor_slug(profile["vendor"]) if profile["vendor"] else "",
-                    "policy_id": policy_id or "",
+                    "policy_id": NFS_POLICY_SOURCES.get(rel, ""),
                     "subtitle": subtitle,
                     "classification": meta.get("classification", ""),
                     "injection_flags": ",".join(flags),
@@ -215,10 +217,10 @@ class KnowledgeStore:
         if vendor:
             clauses.append({"vendor_slug": vendor_slug(vendor)})
         where = None if not clauses else clauses[0] if len(clauses) == 1 else {"$and": clauses}
-        res = self._query(query, where, top_k)
-        if not res and vendor:  # vendor name did not match the registry - retry without vendor filter
-            res = self._query(query, {"doc_type": {"$in": doc_types}} if doc_types else None, top_k)
-        return res
+        # Recheck derived provenance: a persisted index can contain older or forged metadata.
+        return [r for r in self._query(query, where, top_k)
+                if (not doc_types or r["doc_type"] in doc_types)
+                and (not vendor or vendor_slug(r["vendor"]) == vendor_slug(vendor))]
 
     def _query(self, query: str, where: dict | None, top_k: int) -> list[dict]:
         out = self.collection.query(
@@ -243,6 +245,7 @@ class KnowledgeStore:
         out = self.collection.get(include=["metadatas"])
         docs: dict[str, dict] = {}
         for md in out["metadatas"]:
+            profile = doc_profile(md["source"], md["title"])
             d = docs.setdefault(
                 md["doc_id"],
                 {
@@ -250,10 +253,10 @@ class KnowledgeStore:
                     "source": md["source"],
                     "title": md["title"],
                     "subtitle": md.get("subtitle", ""),
-                    "policy_id": md.get("policy_id", ""),
-                    "doc_type": md["doc_type"],
-                    "trust": md["trust"],
-                    "vendor": md.get("vendor", ""),
+                    "policy_id": NFS_POLICY_SOURCES.get(md["source"], ""),
+                    "doc_type": profile["doc_type"],
+                    "trust": profile["trust"],
+                    "vendor": profile["vendor"],
                     "sections": 0,
                 },
             )
@@ -267,16 +270,17 @@ def _section_sort_key(chunk_id: str):
 
 
 def _to_result(cid: str, doc: str, md: dict, score: float | None) -> dict:
+    profile = doc_profile(md["source"], md["title"])
     return {
         "chunk_id": cid,
         "doc_id": md["doc_id"],
         "source": md["source"],
         "title": md["title"],
-        "policy_id": md.get("policy_id", ""),
+        "policy_id": NFS_POLICY_SOURCES.get(md["source"], ""),
         "section": md["section"],
-        "doc_type": md["doc_type"],
-        "trust": md["trust"],
-        "vendor": md.get("vendor", ""),
+        "doc_type": profile["doc_type"],
+        "trust": profile["trust"],
+        "vendor": profile["vendor"],
         "score": score,
         "text": doc,
         "injection_flags": [f for f in md.get("injection_flags", "").split(",") if f],

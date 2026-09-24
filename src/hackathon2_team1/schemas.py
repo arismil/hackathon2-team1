@@ -209,6 +209,7 @@ class EvidenceChunk(BaseModel):
     doc_type: str
     trust: str
     text: str
+    vendor: str = ""
     injection_flags: list[str] = Field(default_factory=list)
     retrieved_by: list[str] = Field(default_factory=list)
     queries: list[str] = Field(default_factory=list)
@@ -224,6 +225,7 @@ class ToolEvent(BaseModel):
     error: str | None = None
     denied: bool = False
     result_chunks: list[str] = Field(default_factory=list)
+    result: dict | None = None
 
 
 # --------------------------------------------------------------------------- decision

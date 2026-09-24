@@ -34,6 +34,8 @@ class AssessmentService:
         return await self._run(aid, init, "vendor-assessment", {"request": req.model_dump(mode="json")})
 
     async def resume(self, aid: str, human: HumanDecision | dict) -> dict:
+        if not (await self.get(aid))["pending_review"]:
+            raise ValueError(f"assessment '{aid}' is not awaiting human review")
         payload = human.model_dump(mode="json") if isinstance(human, HumanDecision) else human
         self.runs.setdefault(aid, {"phases": []})
         return await self._run(aid, Command(resume=payload), "vendor-assessment-human-review", payload)

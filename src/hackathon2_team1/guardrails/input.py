@@ -23,7 +23,7 @@ class InputCheck(BaseModel):
 
 def check_request(req: VendorAssessmentRequest) -> InputCheck:
     reasons = []
-    text = " ".join([req.vendor_name, req.service_description, req.business_request])
+    text = " ".join(value for value in req.model_dump(mode="json").values() if isinstance(value, str))
     inj = detect_injection(text)
     if inj.detected:
         reasons.append(f"prompt-injection patterns in request: {inj.patterns}")
