@@ -221,8 +221,19 @@ The final demo should demonstrate:
 
 `Business Request` → `Deep Agent Plan` → `RAG Evidence` → `MCP Tools` → `Guardrails` → `Risk Synthesis` → `Human Review` → `Evaluation Results` → `Azure Observability` → `Deployed Application` 
 
+the file structure will be:
 
-
+README.md
+architecture/
+src/
+tests/
+evaluation/     # evaluation pipeline
+Dockerfile
+docker-compose.yml        # where needed
+.env.example              # no secrets
+pyproject.toml / requirements.txt
+deployment/               # Azure deployment assets/instructions
+evaluation-results/   # the results of asteria evaluation
 
 
 # **14. Definition of Done** 
