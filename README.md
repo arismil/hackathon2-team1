@@ -43,9 +43,9 @@ Reports are written to `data/reports/` (Markdown, PDF and the full state as JSON
 
 ## Run the full Asteria assessment
 
-This runs the complete Asteria evaluation and writes the results to `evaluation-results/`. It covers the
-baseline Confidential-data request, the Restricted-data variant, LLM-as-judge scoring, and the retrieval and
-guardrail suites. Run it locally with uv so the results end up in the repo. Docker does not mount
+This runs the Asteria assessment from the handout (2,000 users, Confidential data) through the full deep-agent
+workflow, then scores it. It also runs the retrieval and guardrail suites and the LLM-as-judge scoring, and writes
+everything to `evaluation-results/`. Run it locally with uv so the results end up in the repo. Docker does not mount
 `evaluation-results/`.
 
 ```bash
@@ -53,7 +53,7 @@ uv sync
 cp .env.example .env                                 # fill in the AZURE_OPENAI_* settings (required)
 uv run nfs-agent ingest                              # build the ChromaDB index (first time only)
 uv run nfs-agent mcp &                               # optional: remote MCP server on :8001
-uv run python -m evaluation.run_eval --judge --full  # full Asteria assessment + evaluation (a few minutes per case)
+uv run python -m evaluation.run_eval --judge         # full Asteria assessment + evaluation (a few minutes)
 ```
 
 Output:
@@ -63,12 +63,12 @@ evaluation-results/
 ├── latest.md                  # metrics table of the most recent run
 └── <YYYYMMDDTHHMMSSZ>/
     ├── summary.md, results.json
-    ├── E2E-01-report.md/.pdf  # Asteria executive assessment - Confidential data
-    ├── E2E-02-report.md/.pdf  # Asteria executive assessment - Restricted data
-    └── E2E-0x-state.json      # plan, delegation, decision, findings, tool events, timings
+    ├── run.log                # full log of the run: every node, agent, MCP tool call and guardrail event
+    ├── E2E-01-report.md/.pdf  # the Asteria executive assessment
+    └── E2E-01-state.json      # plan, delegation, decision, findings, tool events, timings
 ```
 
-The E2E runs stop at human review, so each report shows the policy-validated recommendation marked **PENDING
+The run stops at human review, so the report shows the policy-validated recommendation marked **PENDING
 HUMAN REVIEW**. To record a sign-off as well, use `uv run nfs-agent assess` (see above).
 
 ## Demo script (final presentation)
@@ -84,7 +84,7 @@ HUMAN REVIEW**. To record a sign-off as well, use `uv run nfs-agent assess` (see
 | 7. Human review | Wrong role → 403; APPROVE on a HIGH-risk vendor → refused; exec risk owner records the decision via a human-only MCP tool | UI review panel |
 | 8. Evaluation | `uv run python -m evaluation.run_eval --judge` → metrics table | `evaluation-results/latest.md` |
 | 9. Observability | Trace tree: agent → nodes → LLM generations (tokens) → MCP tools → guardrails → evaluator; scores | Langfuse |
-| 10. Deployment | `docker compose` locally; Azure Container Apps script + Log Analytics KQL | `deployment/` |
+| 10. Deployment | `docker compose` locally (MCP server, API, Langfuse) | `deployment/` |
 
 ## Mandatory functional requirements
 
@@ -127,7 +127,7 @@ from the actual tool results, so the full LangGraph / `create_agent` / MCP / gua
 
 ```bash
 uv run python -m evaluation.run_eval                 # retrieval + guardrail suites, + E2E when Azure is configured
-uv run python -m evaluation.run_eval --judge --full  # + LLM-as-judge citation support, + Restricted-data variant
+uv run python -m evaluation.run_eval --judge         # + LLM-as-judge citation support
 ```
 
 | Metric (handout §10) | How it is measured |
@@ -162,7 +162,7 @@ src/hackathon2_team1/
 tests/                                          offline unit/integration/fallback tests + Azure e2e
 evaluation/         run_eval.py, cases.yaml, requests/
 evaluation-results/ evaluation outputs (Asteria)
-deployment/         Azure Container Apps script + Log Analytics guide
+deployment/         Docker Compose deployment guide
 Dockerfile, docker-compose.yml, .env.example, pyproject.toml, uv.lock
 ```
 

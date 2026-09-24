@@ -219,3 +219,7 @@ __marimo__/
 
 # local runtime state
 data/
+
+# evaluation outputs (reports, metrics); keep only the folder's README
+evaluation-results/*
+!evaluation-results/README.md

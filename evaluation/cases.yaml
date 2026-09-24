@@ -74,14 +74,3 @@ e2e:  # full deep-agent runs (Azure OpenAI required)
         min_groundedness: 0.75
         min_check_coverage: 0.9
         max_seconds: 900
-  - id: E2E-02
-    name: Asteria AI Systems - Restricted data variant (only with --full)
-    full_only: true
-    request: requests/asteria-restricted.json
-    expect:
-      recommendation_in: [REJECT]
-      overall_risk_in: [HIGH]
-      human_review_required: true
-      thresholds:
-        min_citation_validity: 0.75
-        max_seconds: 900

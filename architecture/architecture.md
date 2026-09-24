@@ -26,7 +26,6 @@ flowchart LR
   end
   AOAI[[Azure OpenAI<br/>chat + embeddings]]
   LF[[Langfuse v3<br/>self-hosted]]
-  LA[[Azure Log Analytics<br/>when deployed]]
 
   UI --> API --> SVC --> G
   G --> GW -- "X-NFS-Role header" --> MCP
@@ -37,7 +36,6 @@ flowchart LR
   MCP --> AOAI
   G --> CK
   SVC -- OTel traces, scores --> LF
-  API -- JSON event logs --> LA
 ```
 
 ## 2. Workflow (LangGraph state machine)
@@ -144,7 +142,7 @@ Fields computed by guardrails are excluded from the JSON schemas the LLM sees (`
   - the AGENT root, a CHAIN span per workflow node, and GENERATION spans with token usage;
   - MCP TOOL calls, GUARDRAIL spans (policy rules) and an EVALUATOR span (online quality check);
   - scores such as citation validity, groundedness, coverage and recommendation. The offline evaluation attaches its metrics to the same trace.
-- **Structured JSON events** go to stdout: `tool_call`, `mcp_fallback`, `injection_quarantined`, `plan_revised`, `specialist_failed`, `human_review_rejected`, `run_finished` and others. In Azure Container Apps they land in Log Analytics (see `deployment/`).
+- **Structured JSON events** go to stdout: `tool_call`, `mcp_fallback`, `injection_quarantined`, `plan_revised`, `specialist_failed`, `human_review_rejected`, `run_finished` and others. Read them with `docker compose logs` (see `deployment/`).
 
 ## 7. Key design decisions
 
