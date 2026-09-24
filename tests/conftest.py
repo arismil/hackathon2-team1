@@ -35,6 +35,8 @@ def offline_env(tmp_path_factory):
         "LANGFUSE_SECRET_KEY": "",
         "AZURE_OPENAI_ENDPOINT": "",
         "AZURE_OPENAI_API_KEY": "",
+        "AZURE_EMBEDDING_ENDPOINT": "",
+        "AZURE_EMBEDDING_API_KEY": "",
     }
     old = {k: os.environ.get(k) for k in env}
     os.environ.update(env)

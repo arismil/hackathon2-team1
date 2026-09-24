@@ -29,12 +29,12 @@ def get_chat_model(role: str = "default", settings: Settings | None = None) -> B
 
 def get_embeddings(settings: Settings | None = None) -> AzureOpenAIEmbeddings:
     s = settings or get_settings()
-    if not s.azure_configured:
-        raise RuntimeError("Azure OpenAI is not configured (AZURE_OPENAI_ENDPOINT / AZURE_OPENAI_API_KEY)")
+    if not (s.embedding_endpoint and s.embedding_api_key):
+        raise RuntimeError("Azure OpenAI embeddings not configured (AZURE_EMBEDDING_ENDPOINT / AZURE_EMBEDDING_API_KEY)")
     return AzureOpenAIEmbeddings(
-        azure_endpoint=s.azure_openai_endpoint,
-        api_key=s.azure_openai_api_key,
-        api_version=s.azure_openai_api_version,
+        azure_endpoint=s.embedding_endpoint,
+        api_key=s.embedding_api_key,
+        api_version=s.azure_embedding_api_version,
         azure_deployment=s.azure_openai_embedding_deployment,
         max_retries=s.llm_max_retries,
     )
