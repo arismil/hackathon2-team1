@@ -4,7 +4,10 @@ version = "0.1.0"
 description = "NFS AI-Powered Vendor Risk & Procurement Deep Agent (hackathon PoC)"
 readme = "README.md"
 authors = [
-    { name = "Aris Miletis", email = "arismiletis@outlook.com" }
+    { name = "Aris Miletis", 
+      name = "Christina Boboti", 
+      name = "Alexandros Andriotis", 
+      name = "Vasilis Vasileiou"}
 ]
 requires-python = ">=3.14"
 dependencies = [
