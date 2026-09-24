@@ -81,12 +81,12 @@ flowchart TD
 |---|---|---|
 | `search_policy` | RAG over NFS policies | all specialists, evaluator |
 | `search_vendor_documents` | RAG over vendor submissions (untrusted) | all specialists, evaluator |
-| `retrieve_document` | All sections of one document | all specialists, evaluator |
-| `list_documents` / `nfs://documents` | Corpus catalogue (tool + resource) | specialists, orchestrator |
-| `get_vendor_history` | Historical assessments + prior recorded runs | all specialists |
-| `calculate_tco` | Deterministic TCO maths | procurement_agent |
+| `retrieve_document` / `nfs://documents/{doc_id}` | All sections of one document (tool + resource) | all specialists, evaluator |
+| `list_documents` / `nfs://documents` | Corpus catalogue (tool + resource) | all specialists, orchestrator, evaluator, human roles |
+| `get_vendor_history` | Historical assessments + prior recorded runs | all specialists, evaluator |
+| `calculate_tco` | Deterministic TCO maths | procurement_agent, evaluator |
 | `record_assessment` | Writes to the system of record as PENDING_HUMAN_REVIEW | orchestrator |
-| `get_prior_assessments` | System-of-record lookup | orchestrator, human roles |
+| `get_prior_assessments` | System-of-record lookup | orchestrator, evaluator, human roles |
 | `record_human_decision` | **Final** decision | executive_risk_owner, vendor_risk_manager — **never an agent** |
 
 The caller's identity travels in the `X-NFS-Role` header (streamable HTTP) or is bound to the in-process server.
