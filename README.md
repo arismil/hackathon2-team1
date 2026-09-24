@@ -23,6 +23,8 @@ cp .env.example .env          # fill in AZURE_OPENAI_ENDPOINT / _API_KEY / deplo
 docker compose up -d --build
 open http://localhost:8000    # UI: submit the pre-filled Asteria request, watch the plan, sign off
 open http://localhost:3000    # Langfuse (admin@nfs.local / nfs-admin-123)
+Copy the created api keys in the .env and then restart the app
+with docker compose down then docker compose up -d
 ```
 
 ### Option B — local Python (uv)
@@ -37,7 +39,37 @@ uv run nfs-agent api                              # or: UI/API on :8000
 ```
 
 Non-interactive sign-off: `uv run nfs-agent assess --decision "CONDITIONAL APPROVAL" --role executive_risk_owner --approver "Jane Doe"`.
-Reports are written to `data/reports/`.
+Reports are written to `data/reports/` (Markdown, PDF and the full state as JSON).
+
+## Run the full Asteria assessment
+
+This runs the complete Asteria evaluation and writes the results to `evaluation-results/`. It covers the
+baseline Confidential-data request, the Restricted-data variant, LLM-as-judge scoring, and the retrieval and
+guardrail suites. Run it locally with uv so the results end up in the repo. Docker does not mount
+`evaluation-results/`.
+
+```bash
+uv sync
+cp .env.example .env                                 # fill in the AZURE_OPENAI_* settings (required)
+uv run nfs-agent ingest                              # build the ChromaDB index (first time only)
+uv run nfs-agent mcp &                               # optional: remote MCP server on :8001
+uv run python -m evaluation.run_eval --judge --full  # full Asteria assessment + evaluation (a few minutes per case)
+```
+
+Output:
+
+```
+evaluation-results/
+├── latest.md                  # metrics table of the most recent run
+└── <YYYYMMDDTHHMMSSZ>/
+    ├── summary.md, results.json
+    ├── E2E-01-report.md/.pdf  # Asteria executive assessment - Confidential data
+    ├── E2E-02-report.md/.pdf  # Asteria executive assessment - Restricted data
+    └── E2E-0x-state.json      # plan, delegation, decision, findings, tool events, timings
+```
+
+The E2E runs stop at human review, so each report shows the policy-validated recommendation marked **PENDING
+HUMAN REVIEW**. To record a sign-off as well, use `uv run nfs-agent assess` (see above).
 
 ## Demo script (final presentation)
 
