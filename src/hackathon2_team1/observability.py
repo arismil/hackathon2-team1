@@ -12,6 +12,7 @@ import json
 import logging
 import sys
 import time
+from pathlib import Path
 from typing import Any
 
 from .config import get_settings
@@ -28,6 +29,14 @@ def setup_logging(level: int = logging.INFO) -> None:
     logging.basicConfig(level=level, handlers=[h])
     for noisy in ("httpx", "chromadb", "mcp.client", "mcp.server.lowlevel", "openai._base_client"):
         logging.getLogger(noisy).setLevel(logging.WARNING)
+
+
+def add_log_file(path: Path) -> logging.FileHandler:
+    """Also write all log records (incl. JSON events) to `path`."""
+    h = logging.FileHandler(path, encoding="utf-8")
+    h.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s"))
+    logging.getLogger().addHandler(h)
+    return h
 
 
 def event(name: str, **fields: Any) -> None:

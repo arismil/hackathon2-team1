@@ -4,7 +4,7 @@
     uv run python -m evaluation.run_eval --suite offline # no LLM calls (retrieval uses hash embeddings w/o Azure)
     uv run python -m evaluation.run_eval --judge         # add LLM-as-judge citation-support scoring
 
-Results: evaluation-results/<timestamp>/{results.json, summary.md, <case>-report.md/.pdf} and
+Results: evaluation-results/<timestamp>/{results.json, summary.md, run.log, <case>-report.md/.pdf} and
 evaluation-results/latest.md. Scores are also pushed to Langfuse (per E2E trace) when configured.
 """
 
@@ -335,6 +335,7 @@ async def main_async(args) -> int:
     ts = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     out_dir = RESULTS_DIR / ts
     out_dir.mkdir(parents=True, exist_ok=True)
+    obs.add_log_file(out_dir / "run.log")
     metrics: list[Metric] = []
 
     if args.suite in ("all", "offline", "retrieval"):

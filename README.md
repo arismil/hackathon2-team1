@@ -63,6 +63,7 @@ evaluation-results/
 ├── latest.md                  # metrics table of the most recent run
 └── <YYYYMMDDTHHMMSSZ>/
     ├── summary.md, results.json
+    ├── run.log                # full log of the run: every node, agent, MCP tool call and guardrail event
     ├── E2E-01-report.md/.pdf  # the Asteria executive assessment
     └── E2E-01-state.json      # plan, delegation, decision, findings, tool events, timings
 ```

@@ -8,6 +8,7 @@ evaluation-results/
 └── <YYYYMMDDTHHMMSSZ>/
     ├── summary.md             # all metrics, pass/fail per threshold
     ├── results.json           # machine-readable metrics + run metadata
+    ├── run.log                # full log of the run (JSON events per node, agent, MCP tool, guardrail)
     ├── E2E-01-report.md       # the full Asteria executive assessment produced during the run
     ├── E2E-01-report.pdf      # the same report as PDF
     └── E2E-01-state.json      # plan, delegation, decision, findings, tool events, timings
