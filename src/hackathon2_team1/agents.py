@@ -105,7 +105,7 @@ def enforce_plan(plan: AssessmentPlan) -> tuple[AssessmentPlan, list[dict]]:
     return plan, delegation
 
 
-async def make_plan(req: VendorAssessmentRequest, catalog: list[dict]) -> tuple[AssessmentPlan, list[dict]]:
+async def make_plan(req: VendorAssessmentRequest, catalog: list[dict], run_id: str = "") -> tuple[AssessmentPlan, list[dict]]:
     catalog_txt = "\n".join(
         f"- {d['doc_id']} ({d['doc_type']}, trust={d['trust']}) {d.get('policy_id', '')} {d['title']}" for d in catalog
     ) or "(catalog unavailable)"
@@ -126,7 +126,7 @@ async def make_plan(req: VendorAssessmentRequest, catalog: list[dict]) -> tuple[
             raise ValueError("planner returned no tasks")
     except Exception as e:
         log.warning("planner failed, using template plan: %s", e)
-        event("planner_fallback", error=str(e)[:300])
+        event("planner_fallback", run_id=run_id, error=str(e)[:300])
         plan = template_plan(req)
     return enforce_plan(plan)
 
@@ -225,7 +225,7 @@ def _finding_digest(domains: list[DomainAssessment]) -> list[dict]:
 
 
 async def synthesize(req: VendorAssessmentRequest, domains: list[DomainAssessment], rules: list[RuleResult],
-                     allowed: list[str]) -> RiskDecisionDraft | None:
+                     allowed: list[str], run_id: str = "") -> RiskDecisionDraft | None:
     payload = {
         "request": req.model_dump(mode="json"),
         "domain_summaries": [
@@ -247,5 +247,5 @@ async def synthesize(req: VendorAssessmentRequest, domains: list[DomainAssessmen
         )
     except Exception as e:
         log.warning("synthesis failed: %s", e)
-        event("synthesis_failed", error=str(e)[:300])
+        event("synthesis_failed", run_id=run_id, error=str(e)[:300])
         return None

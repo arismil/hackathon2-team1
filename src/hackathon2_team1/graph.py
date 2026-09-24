@@ -133,8 +133,10 @@ async def plan_node(state: AssessmentState) -> dict:
             if gw.degraded_reason:
                 degraded.append(gw.degraded_reason)
     except Exception as e:
-        degraded.append(f"document catalog unavailable: {e}")
-    plan, delegation = await make_plan(req, catalog)
+        error = f"{type(e).__name__}: {e}"
+        degraded.append(f"document catalog unavailable: {error}")
+        obs.event("document_catalog_failed", run_id=state["assessment_id"], error=error)
+    plan, delegation = await make_plan(req, catalog, state["assessment_id"])
     return {"plan": plan.model_dump(mode="json"), "delegation": delegation, "iteration": 1,
             "status": "PLANNED", "degraded": degraded}
 
@@ -275,7 +277,8 @@ async def synthesize_node(state: AssessmentState) -> dict:
     domains = [DomainAssessment.model_validate(d) for d in state["domains"]]
     with obs.span("policy_rules_preview", as_type="guardrail"):
         preview = decide(req, domains, ledger, None)
-    draft = await synthesize(req, domains, preview.rules, [r.value for r in preview.allowed_final_decisions])
+    draft = await synthesize(req, domains, preview.rules, [r.value for r in preview.allowed_final_decisions],
+                             state["assessment_id"])
     with obs.span("policy_rules_enforcement", as_type="guardrail", input={"llm_draft": draft.model_dump() if draft else None}) as sp:
         decision = decide(req, domains, ledger, draft)
         summary, problems = guard_summary(decision, domains)
@@ -338,7 +341,9 @@ async def record_node(state: AssessmentState) -> dict:
             record = json.loads(out)
             events = [e.model_dump(mode="json") for e in gw.ledger.events]
     except Exception as e:
-        record, events = {"error": str(e)}, []
+        error = f"{type(e).__name__}: {e}"
+        obs.event("record_assessment_failed", run_id=state["assessment_id"], error=error)
+        record, events = {"error": error}, []
     return {"record": record, "tool_events": events}
 
 
@@ -376,7 +381,9 @@ async def human_review(state: AssessmentState) -> dict:
     try:
         hd = HumanDecision.model_validate(raw)
     except Exception as e:
-        return {"review_attempts": [{"input": raw, "accepted": False, "reason": f"invalid input: {e}"}]}
+        error = f"{type(e).__name__}: {e}"
+        obs.event("human_review_input_failed", run_id=state["assessment_id"], error=error)
+        return {"review_attempts": [{"input": raw, "accepted": False, "reason": f"invalid input: {error}"}]}
     reason = None
     if not can_sign_off(hd.role, dec.overall_risk.value):
         reason = f"role '{hd.role}' is not authorised to decide a {dec.overall_risk.value}-risk vendor " \
@@ -394,7 +401,9 @@ async def human_review(state: AssessmentState) -> dict:
                 "assessment_id": state["assessment_id"], "decision": hd.decision.value,
                 "approver": hd.approver, "comments": hd.comments}))
     except Exception as e:
-        rec = {"error": str(e)}
+        error = f"{type(e).__name__}: {e}"
+        obs.event("human_decision_record_failed", run_id=state["assessment_id"], error=error)
+        rec = {"error": error}
     obs.event("human_decision", run_id=state["assessment_id"], decision=hd.decision, role=hd.role)
     return {"human_decision": {**hd.model_dump(mode="json"), "record": rec},
             "review_attempts": [{"input": hd.model_dump(mode="json"), "accepted": True, "reason": None}]}
