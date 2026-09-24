@@ -3,7 +3,6 @@
     uv run python -m evaluation.run_eval                 # retrieval + guardrail suites, + E2E if Azure is configured
     uv run python -m evaluation.run_eval --suite offline # no LLM calls (retrieval uses hash embeddings w/o Azure)
     uv run python -m evaluation.run_eval --judge         # add LLM-as-judge citation-support scoring
-    uv run python -m evaluation.run_eval --full          # include expensive E2E variants
 
 Results: evaluation-results/<timestamp>/{results.json, summary.md, <case>-report.md/.pdf} and
 evaluation-results/latest.md. Scores are also pushed to Langfuse (per E2E trace) when configured.
@@ -347,8 +346,6 @@ async def main_async(args) -> int:
             print("Azure OpenAI not configured - skipping E2E suite")
         else:
             for case in cfg["e2e"]:
-                if case.get("full_only") and not args.full:
-                    continue
                 metrics += await e2e_case(case, args.judge, out_dir)
 
     meta = {"timestamp": ts, "chat_model": s.azure_openai_chat_deployment, "embedding": s.embedding_provider,
@@ -366,7 +363,6 @@ def main() -> None:
     p = argparse.ArgumentParser()
     p.add_argument("--suite", choices=["all", "offline", "retrieval", "guardrails", "e2e"], default="all")
     p.add_argument("--judge", action="store_true", help="LLM-as-judge citation support scoring")
-    p.add_argument("--full", action="store_true", help="include expensive E2E variants")
     raise SystemExit(asyncio.run(main_async(p.parse_args())))
 
 
