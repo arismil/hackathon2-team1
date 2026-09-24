@@ -214,24 +214,8 @@ Use DOCKER for deployment and local langfuse for operational visibility.
 
 - 1 end-to-end vendor assessment 
 
-# **13. Team Organization** 
 
-Suggested ownership for each 5-person team: 
-
-- Technical Lead – architecture, integration and final decision flow 
-
-- Deep Agent / RAG Engineer – planning, retrieval, grounding and structured outputs 
-
-- MCP Engineer – tools/resources and enterprise integration 
-
-- Guardrails Engineer – specialist agents, authorization and safety controls 
-
-- Evaluation / Azure Engineer – tests, evaluation, observability, deployment and demo 
-
-
-
-
-# **15. Required Deliverables** 
+# **13. Required Deliverables** 
 
 The final demo should demonstrate: 
 
@@ -241,7 +225,7 @@ The final demo should demonstrate:
 
 
 
-# **17. Definition of Done** 
+# **14. Definition of Done** 
 The team must demonstrate the complete engineered system: 
 
 `Vendor Assessment Request` ↓ `Deep Agent Planning` ↓ `RAG + Evidence` ↓ `MCP Tool Use` ↓ `Guardrails / Policy Enforcement` ↓ `Evidence-Based Risk Decision` ↓ `Human Review where required` ↓ `Automated Evaluation` ↓ `Azure Observability` ↓ `Deployed Application` 
